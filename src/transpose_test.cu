@@ -1,11 +1,11 @@
 #include<stdio.h>
 #include"../inc/matrix_operations.cuh"
 
-#define NX 128
-#define NY 128
+#define NX 2048
+#define NY 2048
 
-#define BDIMX 16
-#define BDIMY 16
+#define BDIMX 32
+#define BDIMY 32
 
 int main()
 {
@@ -30,7 +30,7 @@ int main()
     gridSize = {(NX + BDIMX - 1)/BDIMX, (NY + BDIMY -1)/BDIMY, 1};
 
     transpose<<<gridSize, blockSize, calcSharedMemorySize(blockSize, matrix_H)>>>(
-        matrix_D, out_D, NX, NY);
+        matrix_D, out_D, NX, NY, calcPadding(blockSize));
     
     cudaMemcpy(out_H, out_D, matrix_size, cudaMemcpyDeviceToHost);
 

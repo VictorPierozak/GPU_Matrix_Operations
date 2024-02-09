@@ -1,32 +1,37 @@
 #include"../inc/matrix_operations.cuh"
 
-__global__ void transpose(float* in, float* out, unsigned int nx, unsigned int ny)
+__global__ void transpose(float* in, float* out, unsigned int nx, unsigned int ny, unsigned int padding)
 {
     extern __shared__ float tile[];
 
-    unsigned int ix, iy, ti, to;
-    ix = blockIdx.x*blockDim.x + threadIdx.x;
-    iy = blockIdx.y*blockDim.y + threadIdx.y;
+    unsigned int in_idx, out_idx;
 
-    ti = iy*nx + ix;
+    unsigned int ix = blockIdx.x*blockDim.x*2 + threadIdx.x;
+    unsigned int iy = blockIdx.y*blockDim.y + threadIdx.y;
 
-    unsigned int bidx, irow, icol;
-    bidx = threadIdx.y*blockDim.x + threadIdx.x;
-    irow = bidx/blockDim.y;
-    icol = bidx%blockDim.y;    
+    in_idx = iy*nx + ix;
 
-    ix = blockIdx.y * blockDim.y + icol;
-    iy = blockIdx.x * blockDim.x + irow;
+    unsigned int block_idx, block_row, block_col;
+    block_idx = threadIdx.y * blockDim.x + threadIdx.x;
+    block_row = block_idx/blockDim.y;
+    block_col = block_idx%blockDim.y;    
 
-    to =  iy * ny + ix;
+    unsigned int ox = blockIdx.y*blockDim.y + block_col;
+    unsigned int oy = blockIdx.x*blockDim.x*2 + block_row;
 
-    if(ix < nx && iy < ny)
+    out_idx =  oy* ny + ox;
+
+    if(ix + blockDim.x < nx && iy < ny)
     {
-        tile[bidx] = in[ti];
+        unsigned int row_idx = threadIdx.y * (blockDim.x *2 + padding) + threadIdx.x;
+        tile[row_idx] = in[in_idx];
+        tile[row_idx+blockDim.x] = in[in_idx + blockDim.x];
 
         __syncthreads();
 
-        out[to] = tile[icol * blockDim.x + irow ];
+        unsigned int col_idx = block_col * (blockDim.x *2 + padding) + block_row;
+        out[out_idx] = tile[col_idx];
+        out[out_idx+ny*blockDim.x] = tile[col_idx + blockDim.x];
     }
 }
 
