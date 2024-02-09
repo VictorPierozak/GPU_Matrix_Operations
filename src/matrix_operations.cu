@@ -35,3 +35,16 @@ __global__ void transpose(float* in, float* out, unsigned int nx, unsigned int n
     }
 }
 
+    // Matrix multiplication //
+int multiply(float* dest, float* A, size_t A_d1, size_t A_d2, float *B, size_t B_d1, size_t B_d2)
+{
+    if(A_d1 != B_d2) return FAILURE;
+    cudaMemcpyToSymbol(d1, &A_d1, sizeof(size_t));
+    cudaMemcpyToSymbol(d2, &B_d1, sizeof(size_t));
+    
+}
+
+__global__ void multiply(float* dest, float* A, float* B)
+{
+
+}
