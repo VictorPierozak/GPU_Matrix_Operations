@@ -5,7 +5,7 @@ LOADER = nvcc
 ROOT = /home/wiktor/Desktop/gpu_matrix_operations
 
 SRC = $(ROOT)/src
-INC = -I $(ROOT)/inc
+INC = $(ROOT)/inc
 OBJ = $(ROOT)/obj
 BIN = $(ROOT)/bin
 
@@ -17,5 +17,11 @@ transpose_test: $(OBJ)/matrix_operations.o $(SRC)/transpose_test.cu
 	$(CUDACOMP) -dc $(SRC)/transpose_test.cu -o $(OBJ)/transpose_test.o 
 	$(CUDACOMP) $(OBJ)/transpose_test.o $(OBJ)/matrix_operations.o -o $(BIN)/transpose_test
 
-matrix_operations:
+addition_test: $(OBJ)/matrix_operations.o $(SRC)/addition_test.cu
+	$(CUDACOMP) -dc -Xcompiler -fopenmp -I$(INC) $(SRC)/addition_test.cu -o $(OBJ)/addition_test.o 
+	$(CUDACOMP) -lgomp $(OBJ)/addition_test.o $(OBJ)/matrix_operations.o -o $(BIN)/addition_test
+	$(BIN)/addition_test	
+
+
+matrix_operations.o: 
 	$(CUDACOMP) -dc $(SRC)/matrix_operations.cu -o $(OBJ)/matrix_operations.o

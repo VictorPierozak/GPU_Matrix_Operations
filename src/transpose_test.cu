@@ -2,10 +2,10 @@
 #include"../inc/matrix_operations.cuh"
 
 #define NX 2048
-#define NY 2048
+#define NY 48
 
 #define BDIMX 32
-#define BDIMY 32
+#define BDIMY 16
 
 int main()
 {

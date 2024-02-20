@@ -1,5 +1,11 @@
 #include"../inc/matrix_operations.cuh"
 
+#define STREAMS 8
+
+__constant__ size_t cN;
+
+// // //
+
 __global__ void transpose(float* in, float* out, unsigned int nx, unsigned int ny, unsigned int padding)
 {
     extern __shared__ float tile[];
@@ -35,18 +41,39 @@ __global__ void transpose(float* in, float* out, unsigned int nx, unsigned int n
     }
 }
 
-    // Matrix multiplication //
-int multiply(float* dest, float* A, size_t A_d1, size_t A_d2, float *B, size_t B_d1, size_t B_d2)
+//
+
+void add(float* dest, float* A, float *B, size_t r, size_t c, dim3 blockSize)
 {
-    if(A_d2 != B_d1) return FAILURE;
-    cudaMemcpyToSymbol(A_d1, &A_d1, sizeof(size_t));
-    cudaMemcpyToSymbol(A_d2, &A_d2, sizeof(size_t));
-    cudaMemcpyToSymbol(B_d1, &B_d1, sizeof(size_t));
-    cudaMemcpyToSymbol(B_d2, &B_d2, sizeof(size_t));
-    
+    size_t N = r*c;
+    dim3 gridSize = {(N+blockSize.x-1)/blockSize.x, (N+blockSize.y-1)/blockSize.y, 1};
+    cudaStream_t* streams = (cudaStream_t*) malloc(sizeof(cudaStream_t)*STREAMS);
+    for(int i = 0; i < STREAMS; i++)
+        cudaStreamCreate(&streams[i]);
+    size_t chunk = (N + STREAMS - 1)/STREAMS;
+
+    float* A_D, *B_D, *dest_D;
+    cudaMalloc(&A_D, sizeof(float)*N);
+    cudaMalloc(&B_D, sizeof(float)*N);
+    cudaMalloc(&dest_D, sizeof(float)*N);
+    cudaMemcpyToSymbol(cN, &N, sizeof(size_t));
+    for(int i = 0; i < STREAMS; i++ )
+    {
+        size_t offset = i*chunk;
+        cudaMemcpyAsync(&A_D[offset], &A[offset], sizeof(float)*chunk, cudaMemcpyHostToDevice, streams[i]);
+        cudaMemcpyAsync(&B_D[offset], &B[offset], sizeof(float)*chunk, cudaMemcpyHostToDevice, streams[i]);
+        add<<<blockSize, gridSize,0,streams[i]>>>(dest_D, A_D, B_D);
+        cudaMemcpyAsync(&dest[offset], &dest_D[offset], sizeof(float)*chunk,cudaMemcpyDeviceToHost, streams[i]);
+    }
+    for(int i = 0; i < STREAMS; i++)
+        cudaStreamDestroy(streams[i]);
+    cudaFree(A_D);
+    cudaFree(B_D);
+    cudaFree(dest_D);
 }
 
-__global__ void multiply(float* dest, float* A, float* B)
+__global__ void add(float* dest, float* A, float* B)
 {
-
+    size_t idx = blockIdx.y * gridDim.x + blockIdx.x + threadIdx.y * blockDim.x + threadIdx.x;
+    if(idx < cN) dest[idx] = A[idx] + B[idx];
 }
