@@ -22,6 +22,10 @@ addition_test: $(OBJ)/matrix_operations.o $(SRC)/addition_test.cu
 	$(CUDACOMP) -lgomp $(OBJ)/addition_test.o $(OBJ)/matrix_operations.o -o $(BIN)/addition_test
 	$(BIN)/addition_test	
 
+multiplication_test: $(OBJ)/matrix_operations.o $(SRC)/multiplication_test.cu
+	$(CUDACOMP) -dc -Xcompiler -fopenmp -I$(INC) $(SRC)/multiplication_test.cu -o $(OBJ)/multiplication_test.o 
+	$(CUDACOMP) -lgomp $(OBJ)/multiplication_test.o $(OBJ)/matrix_operations.o -o $(BIN)/multiplication_test
+	$(BIN)/multiplication_test	
 
 matrix_operations.o: 
 	$(CUDACOMP) -dc $(SRC)/matrix_operations.cu -o $(OBJ)/matrix_operations.o
