@@ -43,6 +43,7 @@ int main()
     free(B);
     free(C);
     free(C_test);
+    cudaDeviceReset();
     return 0;
 }
 

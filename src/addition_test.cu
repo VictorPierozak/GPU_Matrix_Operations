@@ -5,6 +5,8 @@
 #define cols 10e3
 #define OMP_THREADS 12
 
+//template void add<32, 32, 8>(float* dest, float* A, float *B, m_int r, m_int c);
+
 int main()
 {
     float* A = (float*) malloc(sizeof(float)*rows*cols);    
@@ -36,5 +38,6 @@ int main()
     free(A);
     free(B);
     free(C);
+    cudaDeviceReset();
     return 0;
 }

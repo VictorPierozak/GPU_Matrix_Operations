@@ -1,14 +1,18 @@
 #include"../inc/matrix_operations.cuh"
 
 #define TILE_SIZE 32
-#define STREAMS 8
+#define STREAMS 12
 
-__constant__ m_int cN;
+#define GET_IDX  blockIdx.y * gridDim.x + blockIdx.x + threadIdx.y * blockDim.x + threadIdx.x
+
+__constant__ m_int cSize;
 
 __constant__ m_int cRowsA;
 __constant__ m_int cColsA;
 __constant__ m_int cRowsB;
 __constant__ m_int cColsB;
+
+__constant__ m_int cFactor;
 
 // // //
 
@@ -66,7 +70,7 @@ void add(float* dest, float* A, float *B, m_int r, m_int c, dim3 blockSize)
     cudaMalloc(&A_D, sizeof(float)*N);
     cudaMalloc(&B_D, sizeof(float)*N);
     cudaMalloc(&dest_D, sizeof(float)*N);
-    cudaMemcpyToSymbol(cN, &N, sizeof(m_int));
+    cudaMemcpyToSymbol(cSize, &N, sizeof(m_int));
     for(int i = 0; i < STREAMS; i++ )
     {
         m_int offset = i*chunk;
@@ -85,12 +89,10 @@ void add(float* dest, float* A, float *B, m_int r, m_int c, dim3 blockSize)
 __global__ void add(float* dest, float* A, float* B)
 {
     m_int idx = blockIdx.y * gridDim.x + blockIdx.x + threadIdx.y * blockDim.x + threadIdx.x;
-    if(idx < cN) dest[idx] = A[idx] + B[idx];
+    if(idx < cSize) dest[idx] = A[idx] + B[idx];
 }
 
 //
-
-
 
 void multiply(float** result, float* A, m_int Arows, m_int Acols, float* B, m_int Brows, m_int Bcols, dim3 blockSize)
 {
@@ -192,4 +194,44 @@ __global__ void multiply_tiled(float* dest, float* A, float* B)
 
     if(row < cRowsA && col < cColsB)
     dest[row*cColsB + col] = c0;
+}
+
+//
+
+void multiply_sc_inplace(float* A, m_int Arows, m_int Acols, float scalar, dim3 blockSize)
+{
+    dim3 gridSize = setGridSize(blockSize, Arows, Acols);
+
+    cudaStream_t* streamsArray = (cudaStream_t*) malloc(sizeof(cudaStream_t)*STREAMS);
+    for(m_int i = 0; i < STREAMS; i++)
+    {
+        cudaStreamCreate(&streamsArray[i]);
+    }
+
+    m_int Asize = Arows*Acols;
+    float* A_device;
+    cudaMalloc(&A_device, sizeof(float)*Asize);
+
+    cudaMemcpyToSymbol(cFactor, &scalar, sizeof(float));
+    cudaMemcpyToSymbol(cSize, &Asize, sizeof(m_int));
+
+    m_int chunk = (Asize + STREAMS - 1)/STREAMS;
+    for(m_int s = 0; s < STREAMS; s++)
+    {
+        m_int offset = s*chunk;
+        m_int range = (offset + chunk < Asize) ? chunk: Asize - s*offset;
+        cudaMemcpyAsync(&A[offset], &A_device[offset], sizeof(float)*range, cudaMemcpyHostToDevice, streamsArray[s]);
+        multiply_sc_inplace<<<gridSize, blockSize>>>(A_device);
+        cudaMemcpyAsync(&A_device[offset], &A[offset], sizeof(float)*range, cudaMemcpyDeviceToHost, streamsArray[s]);
+        cudaStreamDestroy(streamsArray[s]);
+    }
+
+    cudaFree(A_device);
+    free(streamsArray);
+}
+
+void __global__ multiply_sc_inplace(float* A)
+{
+    m_int idx = GET_IDX;
+    if(idx < cSize) A[idx] = A[idx]*cFactor;
 }
