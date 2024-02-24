@@ -1,8 +1,8 @@
 #include <stdio.h>
 #include"matrix_operations.cuh"
 
-#define rows 10e3
-#define cols 10e2
+#define rows 500
+#define cols 1024
 #define OMP_THREADS 12
 
 void multiply(float** result, float* A, m_int Arows, m_int Acols, float* B, m_int Brows, m_int Bcols);
@@ -25,12 +25,12 @@ int main()
     dim3 blockSize = {32, 32, 1};
    
     printf("\nMultiplication - start\n");
-    multiply(&C, A, rows, cols, B, cols, rows, blockSize);
+    multiply_tiled(&C, A, rows, cols, B, cols, rows, blockSize);
     printf("\nMultiplication - end\n");
     int test = 1;
      for(size_t i = 0; i < rows*rows; i += 1)
     {
-        if(abs(C[i] - C_test[i]) > 10e-2)
+        if(abs(C[i] - C_test[i]) > 10e-6)
         {
             printf("%d ", i);
             test = 0;

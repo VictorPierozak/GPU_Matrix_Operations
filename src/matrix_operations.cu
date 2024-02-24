@@ -1,8 +1,9 @@
 #include"../inc/matrix_operations.cuh"
 
+#define TILE_SIZE 32
 #define STREAMS 8
 
-__constant__ size_t cN;
+__constant__ m_int cN;
 
 __constant__ m_int cRowsA;
 __constant__ m_int cColsA;
@@ -11,36 +12,40 @@ __constant__ m_int cColsB;
 
 // // //
 
-__global__ void transpose(float* in, float* out, unsigned int nx, unsigned int ny, unsigned int padding)
+__global__ void transpose(float* in, float* out, m_int nx, m_int ny, m_int padding)
 {
     extern __shared__ float tile[];
 
-    unsigned int in_idx, out_idx;
+    m_int in_idx, out_idx;
 
-    unsigned int ix = blockIdx.x*blockDim.x*2 + threadIdx.x;
-    unsigned int iy = blockIdx.y*blockDim.y + threadIdx.y;
+    m_int ix = blockIdx.x*blockDim.x*2 + threadIdx.x;
+    m_int iy = blockIdx.y*blockDim.y + threadIdx.y;
 
     in_idx = iy*nx + ix;
 
-    unsigned int block_idx, block_row, block_col;
+    m_int block_idx, block_row, block_col;
     block_idx = threadIdx.y * blockDim.x + threadIdx.x;
     block_row = block_idx/blockDim.y;
     block_col = block_idx%blockDim.y;    
 
-    unsigned int ox = blockIdx.y*blockDim.y + block_col;
-    unsigned int oy = blockIdx.x*blockDim.x*2 + block_row;
+    m_int ox = blockIdx.y*blockDim.y + block_col;
+    m_int oy = blockIdx.x*blockDim.x*2 + block_row;
 
     out_idx =  oy* ny + ox;
 
+   
+    m_int row_idx = threadIdx.y * (blockDim.x *2 + padding) + threadIdx.x;
     if(ix + blockDim.x < nx && iy < ny)
     {
-        unsigned int row_idx = threadIdx.y * (blockDim.x *2 + padding) + threadIdx.x;
         tile[row_idx] = in[in_idx];
         tile[row_idx+blockDim.x] = in[in_idx + blockDim.x];
+    }
 
-        __syncthreads();
+    __syncthreads();
 
-        unsigned int col_idx = block_col * (blockDim.x *2 + padding) + block_row;
+    m_int col_idx = block_col * (blockDim.x *2 + padding) + block_row;
+    if(ox < ny && oy < nx)
+    {
         out[out_idx] = tile[col_idx];
         out[out_idx+ny*blockDim.x] = tile[col_idx + blockDim.x];
     }
@@ -48,23 +53,23 @@ __global__ void transpose(float* in, float* out, unsigned int nx, unsigned int n
 
 //
 
-void add(float* dest, float* A, float *B, size_t r, size_t c, dim3 blockSize)
+void add(float* dest, float* A, float *B, m_int r, m_int c, dim3 blockSize)
 {
-    size_t N = r*c;
+    m_int N = r*c;
     dim3 gridSize = {(N+blockSize.x-1)/blockSize.x, (N+blockSize.y-1)/blockSize.y, 1};
     cudaStream_t* streams = (cudaStream_t*) malloc(sizeof(cudaStream_t)*STREAMS);
     for(int i = 0; i < STREAMS; i++)
         cudaStreamCreate(&streams[i]);
-    size_t chunk = (N + STREAMS - 1)/STREAMS;
+    m_int chunk = (N + STREAMS - 1)/STREAMS;
 
     float* A_D, *B_D, *dest_D;
     cudaMalloc(&A_D, sizeof(float)*N);
     cudaMalloc(&B_D, sizeof(float)*N);
     cudaMalloc(&dest_D, sizeof(float)*N);
-    cudaMemcpyToSymbol(cN, &N, sizeof(size_t));
+    cudaMemcpyToSymbol(cN, &N, sizeof(m_int));
     for(int i = 0; i < STREAMS; i++ )
     {
-        size_t offset = i*chunk;
+        m_int offset = i*chunk;
         cudaMemcpyAsync(&A_D[offset], &A[offset], sizeof(float)*chunk, cudaMemcpyHostToDevice, streams[i]);
         cudaMemcpyAsync(&B_D[offset], &B[offset], sizeof(float)*chunk, cudaMemcpyHostToDevice, streams[i]);
         add<<<blockSize, gridSize,0,streams[i]>>>(dest_D, A_D, B_D);
@@ -79,9 +84,13 @@ void add(float* dest, float* A, float *B, size_t r, size_t c, dim3 blockSize)
 
 __global__ void add(float* dest, float* A, float* B)
 {
-    size_t idx = blockIdx.y * gridDim.x + blockIdx.x + threadIdx.y * blockDim.x + threadIdx.x;
+    m_int idx = blockIdx.y * gridDim.x + blockIdx.x + threadIdx.y * blockDim.x + threadIdx.x;
     if(idx < cN) dest[idx] = A[idx] + B[idx];
 }
+
+//
+
+
 
 void multiply(float** result, float* A, m_int Arows, m_int Acols, float* B, m_int Brows, m_int Bcols, dim3 blockSize)
 {
@@ -114,6 +123,37 @@ void multiply(float** result, float* A, m_int Arows, m_int Acols, float* B, m_in
     cudaFree(B_device);
 }
 
+void multiply_tiled(float** result, float* A, m_int Arows, m_int Acols, float* B, m_int Brows, m_int Bcols, dim3 blockSize)
+{
+    if(Brows != Acols) return;
+    m_int Asize = Arows*Acols;
+    m_int Bsize = Brows*Bcols;
+    m_int Csize = Arows*Bcols;
+    dim3 gridSize = setGridSize(blockSize, Arows, Bcols);
+    *result = (float*) malloc(sizeof(float)*Csize);
+
+    float* A_device, *B_device, *C_device;
+    cudaMalloc(&A_device, sizeof(float)*Asize);
+    cudaMalloc(&B_device, sizeof(float)*Bsize);
+    cudaMalloc(&C_device, sizeof(float)*Csize);
+    
+    cudaMemcpyToSymbol(cRowsA, &Arows, sizeof(m_int));
+    cudaMemcpyToSymbol(cColsA, &Acols, sizeof(m_int));
+    cudaMemcpyToSymbol(cRowsB, &Brows, sizeof(m_int));
+    cudaMemcpyToSymbol(cColsB, &Bcols, sizeof(m_int));
+
+    cudaMemcpy(A_device, A, sizeof(float)*Asize, cudaMemcpyHostToDevice);
+    cudaMemcpy(B_device, B, sizeof(float)*Bsize, cudaMemcpyHostToDevice);
+    
+    multiply_tiled<<<gridSize, blockSize>>>(C_device, A_device, B_device);
+    
+    cudaMemcpy(*result, C_device, sizeof(float)*Csize, cudaMemcpyDeviceToHost);
+
+    cudaFree(C_device);
+    cudaFree(A_device);
+    cudaFree(B_device);
+}
+
 __global__ void multiply(float* dest, float* A, float* B)
 {
     m_int row = blockDim.y * blockIdx.y + threadIdx.y;
@@ -121,6 +161,35 @@ __global__ void multiply(float* dest, float* A, float* B)
     if( row >= cRowsA || col >= cColsB ) return;
     float c0 = 0.0f;
     for(m_int i = 0; i < cRowsB; i++)
-        c0 += A[row*cColsA + i]*B[i*cColsB + col];
+        c0 = __fmaf_rn(A[row*cColsA + i], B[i*cColsB + col], c0);
+    dest[row*cColsB + col] = c0;
+}
+
+__global__ void multiply_tiled(float* dest, float* A, float* B)
+{
+    __shared__ float A_shared[TILE_SIZE][TILE_SIZE];
+    __shared__ float B_shared[TILE_SIZE][TILE_SIZE];
+
+    m_int row = blockDim.y * blockIdx.y + threadIdx.y;
+    m_int col = blockDim.x * blockIdx.x + threadIdx.x;
+    
+    float c0 = 0.0f;
+
+    for(m_int k = 0; k < (cRowsB + TILE_SIZE - 1)/TILE_SIZE; k++)
+    {
+        if(k*TILE_SIZE + threadIdx.x < cColsA && row < cRowsA)
+            A_shared[threadIdx.y][threadIdx.x] = A[row * cColsA + k*TILE_SIZE + threadIdx.x];
+        else A_shared[threadIdx.y][threadIdx.x] = 0;
+        if(k*TILE_SIZE + threadIdx.y < cRowsB && col < cColsB)
+            B_shared[threadIdx.y][threadIdx.x] = B[(k*TILE_SIZE + threadIdx.y)*cColsB + col];
+        else B_shared[threadIdx.y][threadIdx.x] = 0;
+
+        __syncthreads();
+        for(int i = 0; i < TILE_SIZE; i++)
+            c0 = __fmaf_rn(A_shared[threadIdx.y][i], B_shared[i][threadIdx.x], c0);
+        __syncthreads();
+    }
+
+    if(row < cRowsA && col < cColsB)
     dest[row*cColsB + col] = c0;
 }

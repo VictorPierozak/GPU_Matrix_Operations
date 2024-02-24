@@ -1,8 +1,8 @@
 #include<stdio.h>
 #include"../inc/matrix_operations.cuh"
 
-#define NX 2048
-#define NY 48
+#define NX 900
+#define NY 1000
 
 #define BDIMX 32
 #define BDIMY 16
