@@ -52,5 +52,4 @@ int main()
     cudaFree(matrix_D);
     free(out_H);
     free(matrix_H);
-    cudaDeviceReset();
 }
