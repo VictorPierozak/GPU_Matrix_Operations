@@ -5,7 +5,7 @@
 #define NY 1000
 
 #define BDIMX 32
-#define BDIMY 16
+#define BDIMY 32
 
 int main()
 {
