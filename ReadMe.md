@@ -1,1 +1,1 @@
-This repo contains matrix operations performed using GPU. 
+This repo contains matrix operations performed using GPU and my CUDA programming learing process 
