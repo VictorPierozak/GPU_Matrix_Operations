@@ -1,7 +1,7 @@
 #include <stdio.h>
 #include"matrix_operations.cuh"
 
-#define rows 500
+#define rows 2000
 #define cols 1024
 #define OMP_THREADS 12
 

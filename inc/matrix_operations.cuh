@@ -24,7 +24,7 @@ inline m_int calcSharedMemorySize(dim3 blockSize, T* matrix)
     return (blockSize.x*2 + calcPadding(blockSize)) * blockSize.y * sizeof(T);
 }
 
-__global__ void transpose(float* in, float* out, m_int nx, m_int ny, m_int padding);
+__global__ void transpose(float* in, float* out, m_int nx, m_int ny);
 
     // Addition //
 
@@ -41,5 +41,5 @@ void multiply_sc_inplace(float* A, m_int Arows, m_int Acols, float scalar, dim3 
 __global__ void multiply_sc_inplace(float* A);
 
     // Reduction //
-void array_sum(float* vector, m_int size, float *result, m_int blockSize);
-__global__ void array_sum(float* vector);
+void array_sum(double* vector, m_int size, double *result, m_int blockSize);
+__global__ void array_sum(double* vector);

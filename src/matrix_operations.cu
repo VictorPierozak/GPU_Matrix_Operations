@@ -1,9 +1,11 @@
 #include"../inc/matrix_operations.cuh"
-
+#include<stdio.h>
 #define GET_IDX blockIdx.y * gridDim.x + blockIdx.x + threadIdx.y * blockDim.x + threadIdx.x
 
 #define TILE_SIZE 32
 #define STREAMS 8
+#define BDIMX 32
+#define BDIMY 32
 
 __constant__ m_int cSize;
 __constant__ float cFactor;
@@ -13,46 +15,26 @@ __constant__ m_int cColsA;
 __constant__ m_int cRowsB;
 __constant__ m_int cColsB;
 
-// // //
-
-__global__ void transpose(float* in, float* out, m_int nx, m_int ny, m_int padding)
+__global__ void transpose(float* in, float* out, m_int nx, m_int ny)
 {
     extern __shared__ float tile[];
+    int x = blockIdx.x * blockDim.x + threadIdx.x;
+    int y = blockIdx.y * blockDim.y + threadIdx.y;
+    int width = gridDim.x * blockDim.x;
 
-    m_int in_idx, out_idx;
-
-    m_int ix = blockIdx.x*blockDim.x*2 + threadIdx.x;
-    m_int iy = blockIdx.y*blockDim.y + threadIdx.y;
-
-    in_idx = iy*nx + ix;
-
-    m_int block_idx, block_row, block_col;
-    block_idx = threadIdx.y * blockDim.x + threadIdx.x;
-    block_row = block_idx/blockDim.y;
-    block_col = block_idx%blockDim.y;    
-
-    m_int ox = blockIdx.y*blockDim.y + block_col;
-    m_int oy = blockIdx.x*blockDim.x*2 + block_row;
-
-    out_idx =  oy* ny + ox;
-
-   
-    m_int row_idx = threadIdx.y * (blockDim.x *2 + padding) + threadIdx.x;
-    if(ix + blockDim.x < nx && iy < ny)
-    {
-        tile[row_idx] = in[in_idx];
-        tile[row_idx+blockDim.x] = in[in_idx + blockDim.x];
-    }
+    if(x < nx && y < ny)
+    tile[threadIdx.y * blockDim.x + threadIdx.x] = in[y*width + x];
 
     __syncthreads();
 
-    m_int col_idx = block_col * (blockDim.x *2 + padding) + block_row;
-    if(ox < ny && oy < nx)
-    {
-        out[out_idx] = tile[col_idx];
-        out[out_idx+ny*blockDim.x] = tile[col_idx + blockDim.x];
-    }
+    x = blockIdx.y * blockDim.x + threadIdx.x;
+    y = blockIdx.x * blockDim.y + threadIdx.y;
+    width = gridDim.y * blockDim.y;
+
+    if( x < ny && y < nx)
+    out[y*width + x] = tile[threadIdx.x * blockDim.x + threadIdx.y];
 }
+
 
 //
 
@@ -117,7 +99,7 @@ void multiply(float** result, float* A, m_int Arows, m_int Acols, float* B, m_in
     cudaMemcpy(A_device, A, sizeof(float)*Asize, cudaMemcpyHostToDevice);
     cudaMemcpy(B_device, B, sizeof(float)*Bsize, cudaMemcpyHostToDevice);
     
-    multiply<<<gridSize, blockSize>>>(C_device, A_device, B_device);
+    multiply_tiled<<<gridSize, blockSize>>>(C_device, A_device, B_device);
     
     cudaMemcpy(*result, C_device, sizeof(float)*Csize, cudaMemcpyDeviceToHost);
 
@@ -235,32 +217,32 @@ void __global__ multiply_sc_inplace(float* A)
     if(idx < cSize) A[idx] = A[idx]*cFactor;
 }
 
-void array_sum(float* vector, m_int size, float *result, m_int blockSize)
+void array_sum(double* vector, m_int size, double *result, m_int blockSize)
 {
     m_int gridSize =(size + blockSize - 1)/blockSize;
-    float* vector_device = NULL;
+    double* vector_device = NULL;
     cudaMemcpyToSymbol(cSize, &size, sizeof(m_int));
-    cudaMalloc(&vector_device, sizeof(float)*size);
-    cudaMemcpy(vector_device, vector, sizeof(float)*size, cudaMemcpyHostToDevice);
+    cudaMalloc(&vector_device, sizeof(double)*size);
+    cudaMemcpy(vector_device, vector, sizeof(double)*size, cudaMemcpyHostToDevice);
     array_sum<<<gridSize, blockSize>>>(vector_device);
     cudaDeviceSynchronize();
-    float partial = 0.0f;
+    double partial = 0.0f;
+    *result = 0;
     for(m_int i = 0; i < gridSize; i++)
     {
-        cudaMemcpy(&partial, &vector_device[i*blockSize], sizeof(float), cudaMemcpyDeviceToHost);
+        cudaMemcpy(&partial, &vector_device[i*blockSize], sizeof(double), cudaMemcpyDeviceToHost);
         *result += partial;
     }
 
     cudaFree(vector_device);
 }
 
-__global__ void array_sum(float* vector)
+__global__ void array_sum(double* vector)
 {
     m_int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    float a0 = 0.0f;
-
-    volatile float * local_vector = vector + blockIdx.x * blockDim.x;
-    for(m_int stride = blockDim.x / 2; stride >= 32; stride >>= 1)
+    double a0 = 0.0f;
+    
+    for(m_int stride = blockDim.x>>1; stride >= 32; stride >>= 1)
     {
         if(threadIdx.x < stride && idx + stride < cSize) vector[idx] += vector[idx + stride];
         __syncthreads();
